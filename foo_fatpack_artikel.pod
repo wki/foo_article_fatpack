@@ -1,0 +1,151 @@
+=encoding utf-8
+=head1 App::Fatpack
+
+=head2 Warum Fatpack?
+
+Gelegentlich ergeben sich Notwendigkeiten, in Perl entwickelte Programme auf unterschiedlichen Systemen zur Verfügung haben zu müssen. Nicht immer ist ein
+Zugriff auf CPAN oder firmeneigene Äquivalente möglich, Benutzerrechte sind unzureichend, vorhandene Perl-Module entsprechen nicht den Wünschen oder es fehlen C-Compiler und Co. Kurzum, es muss ein Weg gefunden werden, unsere Programme einfach und schnell zu installieren.
+
+Die einfachst zu installierende Variante wäre es, nur auf CORE Module zurück zu greifen und sämtlichen ausführbaren Code in eine einzige Datei zu packen. Doch damit erkauft man sich schnell Spagetti-Code oder Wartungs-Höllen, es muss also nach Alternativen gesucht werden.
+
+Ein möglicher Weg ist der Einsatz von App::Fatpacker. Alternativ kann man auch  PAR::Packer einsetzen.
+
+=head2 Technischer Hintergrund
+
+Das Endresultat eines Pack-Vorganges ist eine ausführbare Datei, in der neben dem eigentlichen Script auch sämtliche (rein in Perl geschriebenen) Module mit enthalten sind. Grund genug zunächst einmal zu untersuchen, welche Mechanismen im Hintergrund dafür notwendig sind, damit so etwas überhaupt funktioniert.
+
+Es muss sichergestellt sein, dass das Laden von Modulen via C<use> oder C<require> funktionieren. Dazu verrät die Man page C<<< perldoc -f require >>> den Trick: das C<@INC> Array darf auch Code-Referenzen oder Objekte enthalten, um einen gezielten Eingriff in den Ladevorgang von Modulen vornehmen zu können.
+
+Eine einfache Lade-Routine könnte demnach so aussehen:
+
+    BEGIN {
+        # Definition aller gepackten Module
+        my %fatpacked = (
+            'My/X.pm' => 'package My::X; our $x = 42;'
+        );
+        
+        # Lade-Routine
+        unshift @INC, sub {
+            my ($this_subref, $filename) = @_;
+    
+            my $source_code = $fatpacked{$filename}
+                or return;
+            open my $fh, '<', \$source_code;
+            return $fh;
+        };
+    }
+
+Neben diesem Trick findet auch das Idiom der im Speicher gehaltenen Dateien Verwendung, das in C<<< perldoc -f open >>> beschrieben ist. Verwendet man anstelle eines Dateinamens eine Skalare Referenz, so wird der Inhalt der skalaren Variable wie eine Datei behandelt und kann über die üblichen Datei-Operationen behandelt werden. Damit fällt die eigentliche Lade-Routine relativ kurz aus und das Haupt-Augenmerk liegt darauf, sämtliche notwendigen Module zusammenzutragen und in den Hash zu packen.
+
+=head2 Einschränkungen
+
+Solange Module über C<require> oder C<use> geladen werden und es sich dabei um reine Perl Module handelt, ist alles in Ordnung. Sogar ein C<<< do 'My/X.pm' >>> wäre in obigem Falle ausführbar.
+
+Wehe aber, wenn versucht werden sollte, Plugin-Mechanismen einzusetzen, die Verzeichnisse traversieren, ergeben sich Probleme. Damit sind Module wie L<Module::Pluggable> leider nicht einsetzbar. Der Grund liegt darin, dass ja eben keine Dateien für die ladbaren Kandidaten der Module vorhanden sind.
+
+Ebenfalls draußen bleiben müssen in C geschriebene Module, da zum Einen die erzeugten Bibliotheken plattformabhängig sind und zum Anderen der Linker bei der Ausführung nichts mit Daten aus einem Perl Hash anfangen kann.
+
+Ebenfalls draußen ist, wer mit L<Module::ShareDir> oder vergleichbaren arbeiten mag. Auch hier ist der Grund der selbe: es gibt keine Dateien.
+
+=head2 Beispiel Anwendung
+
+Um zu sehen, was alles beim Packen passiert, wollen wir eine einfache Anwendung stricken. Wir nutzen L<Moo> als Objektsystem und L<MooX::Options> zur Handhabung von Kommandozeilen-Argumenten und packen die eigentliche Ablauf-Logik in eine zusätzliche Klasse.
+
+Unser Script ist dann relativ einfach:
+
+    #!/usr/bin/env perl
+    use MyApp;
+    MyApp->new_with_options->run;
+
+In der Applikation C<MyApp> werden lediglich Kommandozeilen Argumente entgegen genommen und dann weiter deligiert.
+
+    package MyApp;
+    use Moo;
+    use MooX::Options;
+    use MyApp::Worker;
+    
+    option units => (
+        is       => 'ro',
+        required => 1,
+        format   => 'i',
+        short    => 'u',
+        doc      => 'Select no of units to work [required]',
+    );
+    
+    has worker => (
+        is => 'lazy',
+    );
+    
+    sub _build_worker { MyApp::Worker->new }
+    
+    sub run {
+        my $self = shift;
+        
+        $self->worker->work($self->units);
+    }
+    
+    1;
+
+Und ganz primitiv fällt der Umfang unserer Arbeits-Klasse aus:
+
+    package MyApp::Worker;
+    use 5.010;
+    use Moo;
+    
+    sub work {
+        my ($self, $units) = @_;
+        
+        say "You chose $units units to work";
+    }
+    
+    1;
+
+=head2 Packen mit App::FatPacker
+
+Leider sind vier Schritte notwendig, um aus dem gegebenen Script eine gepackte Variante zu erstellen, aber diese Schritte sind exakt in dieser Reihenfolge in der Dokumentation von L<App::FatPacker> beschrieben.
+
+Der erste Aufruf startet das Script und fängt dabei sämtliche Ladevorgänge ab. Jedes hierbei geladene Modul wird gemerkt und als jeweils eine Zeile in der Datei F<fatpacker.trace> im aktuellen Verzeichnis mitgeschrieben.
+
+    $ fatpack trace bin/my_app.pl
+
+Anhand der geladenen Module wird nun versucht, die durch die Installation mit einem CPAN Client entstandenen F<.packlist> Dateien zu finden. Das ist notwendig, damit anschließend sämtliche in der zu Grunde liegenden Distribution enthaltenen Dateien gefunden werden können. Das Ergebnis ist eine zweite Arbeits-Datei, in der die Pfade sämtlicher F<.packlist> Dateien enthalten sind.
+
+    $ fatpack packlists-for `cat fatpacker.trace` >packlists
+
+Nun werden sämtliche F<.packlist> Dateien durchforstet und alle darin enthaltenen Dateien zusammengetragen. Dazu wird das Verzeichnis F<fatlib> angelegt und in der notwendigen Hierarchie befüllt.
+
+    $ fatpack tree `cat packlists`
+
+Zum Abschluss werden die Shebang-Zeile des Scripts, die Inhalte sämtlicher F<.pm> Dateien aus dem Verzeichnis F<fatlib> sowie der Rest des Scripts zu einer Datei zusammengefasst. Warnungen erscheinen für alle in den Pack-Listen enthaltenen Dateien, die nicht die Datei-Endung F<.pm> tragen und können gerne ignoriert werden.
+
+    $ fatpack file myscript.pl >packed.pl
+
+Voilà! Wir haben eine (leider ca. 1MiB große) Datei, in der alles enthalten ist, das wir brauchen. Und das beste: sie funktioniert sogar.
+
+    $ ./packed.pl -u 42
+    You chose 42 units to work
+
+=head2 Vereinfachung
+
+Wer so etwas häufiger benötigt, wird die vier Schritte vermutlich in einem F<Makefile> unterbringen oder für die ganz faulen wie mich durch das L<Dist::Zilla> Plugin L<Dist::Zilla::Plugin::FatPacker>. Dadurch wird die Benutzung besonders einfach, lediglich eine geegnete F<dist.ini> Datei ist notwendig. In diesem Fall werden sämtliche im F<lib> Verzeichnis gespeicherten Module nicht mit in die entstehende Distribution gepackt, da uns nur das ausführbare Binärprogramm interessiert.
+
+    name             = MyApp
+    version          = 0.01
+    author           = Wolfgang Kinkeldei <wolfgang@kinkeldei.de>
+    license          = Perl_5
+    copyright_holder = Wolfgang Kinkeldei
+    copyright_year   = 2014
+    
+    [@Basic]
+    
+    [PruneFiles]
+    match = ^lib/
+    
+    [FatPacker]
+    script = bin/my_app.pl
+
+Gepackt wird dann ganz einfach:
+
+    $ dzil build
+
+Nun kann bequem die entstandene F<.tar.gz> Datei verteilt und am Zielort entpackt und das Script ohne weitere Aktivitäten genutzt werden.
