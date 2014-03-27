@@ -6,7 +6,7 @@
 Gelegentlich ergeben sich Notwendigkeiten, in Perl entwickelte Programme auf unterschiedlichen Systemen zur Verfügung haben zu müssen. Nicht immer ist ein
 Zugriff auf CPAN oder firmeneigene Äquivalente möglich, Benutzerrechte sind unzureichend, vorhandene Perl-Module entsprechen nicht den Wünschen oder es fehlen C-Compiler und Co. Kurzum, es muss ein Weg gefunden werden, unsere Programme einfach und schnell zu installieren.
 
-Die einfachst zu installierende Variante wäre es, nur auf CORE Module zurück zu greifen und sämtlichen ausführbaren Code in eine einzige Datei zu packen. Doch damit erkauft man sich schnell Spagetti-Code oder Wartungs-Höllen, es muss also nach Alternativen gesucht werden.
+Die einfachste zu installierende Variante wäre es, nur auf CORE Module zurück zu greifen und sämtlichen ausführbaren Code in eine einzige Datei zu packen. Doch damit erkauft man sich schnell Spagetti-Code oder Wartungs-Höllen, es muss also nach Alternativen gesucht werden.
 
 Ein möglicher Weg ist der Einsatz von App::Fatpacker. Alternativ kann man auch  PAR::Packer einsetzen.
 
@@ -57,7 +57,7 @@ Unser Script ist dann relativ einfach:
     use MyApp;
     MyApp->new_with_options->run;
 
-In der Applikation C<MyApp> werden lediglich Kommandozeilen Argumente entgegen genommen und dann weiter deligiert.
+In der Applikation C<MyApp> werden lediglich Kommandozeilen Argumente entgegen genommen und dann weiter delegiert.
 
     package MyApp;
     use Moo;
@@ -127,7 +127,7 @@ Voilà! Wir haben eine (leider ca. 1MiB große) Datei, in der alles enthalten is
 
 =head2 Vereinfachung
 
-Wer so etwas häufiger benötigt, wird die vier Schritte vermutlich in einem F<Makefile> unterbringen oder für die ganz faulen wie mich durch das L<Dist::Zilla> Plugin L<Dist::Zilla::Plugin::FatPacker>. Dadurch wird die Benutzung besonders einfach, lediglich eine geegnete F<dist.ini> Datei ist notwendig. In diesem Fall werden sämtliche im F<lib> Verzeichnis gespeicherten Module nicht mit in die entstehende Distribution gepackt, da uns nur das ausführbare Binärprogramm interessiert.
+Wer so etwas häufiger benötigt, wird die vier Schritte vermutlich in einem F<Makefile> unterbringen oder für die ganz faulen wie mich durch das L<Dist::Zilla> Plugin L<Dist::Zilla::Plugin::FatPacker>. Dadurch wird die Benutzung besonders einfach, lediglich eine geeignete F<dist.ini> Datei ist notwendig. In diesem Fall werden sämtliche im F<lib> Verzeichnis gespeicherten Module nicht mit in die entstehende Distribution gepackt, da uns nur das ausführbare Binärprogramm interessiert.
 
     name             = MyApp
     version          = 0.01
